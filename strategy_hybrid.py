@@ -83,7 +83,7 @@ def place_order(side, qty, price):
         "price": str(price),
         "timeInForce": "GTC"
     }
-    payload = timestamp + API_KEY + "5000" + json.dumps(body)
+    payload = f"{timestamp}{API_KEY}{json.dumps(body, separators=(',', ':'))}"
     sign = create_signature(payload)
     headers = {
         "X-BAPI-API-KEY": API_KEY,
