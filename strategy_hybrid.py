@@ -14,11 +14,11 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 
 # === KONSTANTEN ===
-SYMBOL = "DOGEUSDT"
+SYMBOL = "BTCUSDT"
 INTERVAL = "15"  # Minutenkerze
 LIMIT = 200
 BASE_URL = "https://api.bybit.com"
-USDT_EINSATZ = 10
+USDT_EINSATZ = 100
 EMA_LEN = 200
 RSI_LEN = 14
 RSI_BUY = 40
@@ -123,7 +123,7 @@ def run():
     if not has_position:
         if rsi_val < RSI_BUY and not trending and bullish:
             print("✅ RSI BUY SIGNAL")
-            qty = round(USDT_EINSATZ / close, 1)
+            qty = int(USDT_EINSATZ / close)
             place_order("Buy", qty, round(close, 4))
             has_position = True
             entry_price = close
@@ -132,7 +132,7 @@ def run():
             log_trade("Buy", "Long", qty, close, "RSI")
         elif close > high_break and trending and bullish:
             print("🚀 BREAKOUT LONG SIGNAL")
-            qty = round(USDT_EINSATZ / close, 1)
+            qty = int(USDT_EINSATZ / close)
             place_order("Buy", qty, round(close, 4))
             has_position = True
             entry_price = close
