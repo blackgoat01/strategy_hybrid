@@ -9,16 +9,12 @@ import csv
 import pandas as pd
 from datetime import datetime
 
-# === ENV Variablen ===
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
-
-# === KONSTANTEN ===
-SYMBOL = "BTCUSDT"
-INTERVAL = "15"  # Minutenkerze
+# === KONFIGURATION ===
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "DOGEUSDT"]
+USDT_EINSATZ = 100
+INTERVAL = "15"
 LIMIT = 200
 BASE_URL = "https://api.bybit.com"
-USDT_EINSATZ = 100
 EMA_LEN = 200
 RSI_LEN = 14
 RSI_BUY = 40
@@ -28,18 +24,16 @@ BREAKOUT_LEN = 20
 ATR_LEN = 14
 ATR_MULT = 2.0
 
-has_position = False
-entry_price = None
-entry_type = None
-entry_direction = None
+API_KEY = os.getenv("API_KEY")
+API_SECRET = os.getenv("API_SECRET")
 
-# === HELFER ===
+# === FUNKTIONEN ===
 def create_signature(payload):
     return hmac.new(API_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-def get_klines():
+def get_klines(symbol):
     url = f"{BASE_URL}/v5/market/kline"
-    params = {"category": "spot", "symbol": SYMBOL, "interval": INTERVAL, "limit": LIMIT}
+    params = {"category": "spot", "symbol": symbol, "interval": INTERVAL, "limit": LIMIT}
     r = requests.get(url, params=params)
     raw = r.json()["result"]["list"]
     df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume", "turnover"])
@@ -69,17 +63,17 @@ def atr(df, period):
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
 
-def log_trade(trade_type, direction, qty, price, signal_type):
+def log_trade(symbol, trade_type, direction, qty, price, signal_type):
     with open("tradelog.csv", mode="a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([datetime.now().isoformat(), trade_type, direction, qty, price, signal_type])
+        writer.writerow([datetime.now().isoformat(), symbol, trade_type, direction, qty, price, signal_type])
 
-def place_order(side, qty, price):
+def place_order(symbol, side, qty, price):
     timestamp = str(int(time.time() * 1000))
     recv_window = "5000"
     body = {
         "category": "spot",
-        "symbol": SYMBOL,
+        "symbol": symbol,
         "side": side,
         "orderType": "Limit",
         "qty": str(qty),
@@ -98,58 +92,42 @@ def place_order(side, qty, price):
     }
     url = f"{BASE_URL}/v5/order/create"
     r = requests.post(url, headers=headers, data=body_json)
-    print(f"📨 Order: {side} {qty} @ {price} USDT → {r.text}")
+    print(f"[{symbol}] 📨 Order: {side} {qty} @ {price} USDT → {r.text}")
 
-# === MAIN LOGIK ===
-def run():
-    global has_position, entry_price, entry_type, entry_direction
+# === BOT LOGIK ===
+def run_bot():
+    for symbol in SYMBOLS:
+        try:
+            df = get_klines(symbol)
+            df["ema"] = ema(df["close"], EMA_LEN)
+            df["rsi"] = rsi(df["close"], RSI_LEN)
+            df["atr"] = atr(df, ATR_LEN)
 
-    df = get_klines()
-    df["ema"] = ema(df["close"], EMA_LEN)
-    df["rsi"] = rsi(df["close"], RSI_LEN)
-    df["atr"] = atr(df, ATR_LEN)
+            close = df["close"].iloc[-1]
+            ema_val = df["ema"].iloc[-1]
+            rsi_val = df["rsi"].iloc[-1]
+            atr_val = df["atr"].iloc[-1]
+            high_break = df["close"].shift(1).rolling(BREAKOUT_LEN).max().iloc[-1]
 
-    close = df["close"].iloc[-1]
-    ema_val = df["ema"].iloc[-1]
-    rsi_val = df["rsi"].iloc[-1]
-    atr_val = df["atr"].iloc[-1]
-    high_break = df["close"].shift(1).rolling(BREAKOUT_LEN).max().iloc[-1]
-    low_break = df["close"].shift(1).rolling(BREAKOUT_LEN).min().iloc[-1]
+            trending = True
+            bullish = close > ema_val
 
-    trending = True
-    bullish = close > ema_val
-    bearish = close < ema_val
-
-    if not has_position:
-        if rsi_val < RSI_BUY and not trending and bullish:
-            print("✅ RSI BUY SIGNAL")
             qty = int(USDT_EINSATZ / close)
-            place_order("Buy", qty, round(close, 4))
-            has_position = True
-            entry_price = close
-            entry_type = "RSI"
-            entry_direction = "Long"
-            log_trade("Buy", "Long", qty, close, "RSI")
-        elif close > high_break and trending and bullish:
-            print("🚀 BREAKOUT LONG SIGNAL")
-            qty = int(USDT_EINSATZ / close)
-            place_order("Buy", qty, round(close, 4))
-            has_position = True
-            entry_price = close
-            entry_type = "Breakout"
-            entry_direction = "Long"
-            log_trade("Buy", "Long", qty, close, "Breakout")
-    else:
-        if rsi_val > RSI_EXIT:
-            print("📤 RSI EXIT")
-            place_order("Sell", qty, round(close, 4))
-            has_position = False
-            log_trade("Sell", "Long", qty, close, "RSI EXIT")
-        elif close < (entry_price - atr_val * ATR_MULT):
-            print("📉 TRAILING STOP EXIT")
-            place_order("Sell", qty, round(close, 4))
-            has_position = False
-            log_trade("Sell", "Long", qty, close, "Trailing Stop")
+
+            # RSI BUY
+            if rsi_val < RSI_BUY and not trending and bullish:
+                print(f"[{symbol}] ✅ RSI BUY SIGNAL")
+                place_order(symbol, "Buy", qty, round(close, 4))
+                log_trade(symbol, "Buy", "Long", qty, close, "RSI")
+
+            # BREAKOUT BUY
+            elif close > high_break and trending and bullish:
+                print(f"[{symbol}] 🚀 BREAKOUT LONG SIGNAL")
+                place_order(symbol, "Buy", qty, round(close, 4))
+                log_trade(symbol, "Buy", "Long", qty, close, "Breakout")
+
+        except Exception as e:
+            print(f"[{symbol}] ❌ Fehler: {e}")
 
 if __name__ == "__main__":
-    run()
+    run_bot()
