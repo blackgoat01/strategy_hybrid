@@ -123,7 +123,7 @@ def run():
     if not has_position:
         if rsi_val < RSI_BUY and not trending and bullish:
             print("✅ RSI BUY SIGNAL")
-            qty = round(USDT_EINSATZ / close, 2)
+            qty = round(USDT_EINSATZ / close, 1)
             place_order("Buy", qty, round(close, 4))
             has_position = True
             entry_price = close
@@ -132,7 +132,7 @@ def run():
             log_trade("Buy", "Long", qty, close, "RSI")
         elif close > high_break and trending and bullish:
             print("🚀 BREAKOUT LONG SIGNAL")
-            qty = round(USDT_EINSATZ / close, 2)
+            qty = round(USDT_EINSATZ / close, 1)
             place_order("Buy", qty, round(close, 4))
             has_position = True
             entry_price = close
